@@ -41,8 +41,8 @@ impl Header {
         let mut header_data = Box::new([0; 12]);
         
         // identifier stored in big endian format
-        header_data[0] = (self.identifier & 0xFF00) as u8;
-        header_data[1] = ( self.identifier & 0x00FF) as u8;
+        header_data[1] = (self.identifier & 0xFF00) as u8;
+        header_data[0] = ( self.identifier & 0x00FF) as u8;
         
         header_data[2] = ((self.is_response as u8) << 7) | ((self.opcode & 0xF) << 3) | ((self.authoritative as u8) << 2) 
             | ((self.truncation as u8) << 1) | ((self.recursion_desired as u8) << 0);
