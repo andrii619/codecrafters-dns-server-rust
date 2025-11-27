@@ -8,6 +8,30 @@
 /// |
 /// |
 
+
+pub enum RecordType {
+    A,
+    NS,
+    MD,
+    MF,
+    CNAME,
+    SOA,
+    MB,
+    MG,
+    MR,
+    NULL,
+    WKS,
+    PTR,
+    HINFO,
+    MINFO,
+    MX,
+    TXT,
+}
+
+pub enum QuestionClass {
+    IN=1,
+}
+
 /// Header is always 12bytes inside a raw packet
 pub struct Header {
     pub identifier: u16, // [0:1] A random ID assigned to query packets. Response packets must reply with the same ID.
@@ -63,8 +87,16 @@ impl Header {
     }
 }
 
+
+pub struct Question {
+    pub domain_name: String,
+    pub question_type: RecordType,
+    pub class: QuestionClass,
+}
+
 pub struct DNSPacket {
     pub header: Header,
+    pub questions: Vec<Question>,
 }
 
 impl DNSPacket {
