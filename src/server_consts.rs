@@ -1,5 +1,5 @@
 /// Compile time constants for our DNS server
-/// 
+///
 pub fn meow() {
     println!("meow");
 }
