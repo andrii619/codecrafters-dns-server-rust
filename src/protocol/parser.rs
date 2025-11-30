@@ -1,3 +1,7 @@
+use std::io::Read;
+
+use bytes::BufMut;
+
 ///
 /// DNS Message:
 /// !!! All data in big-endian format
@@ -7,10 +11,11 @@
 /// |
 /// |
 /// |
+use crate::server_consts;
 
-
+#[derive(Clone, Copy)]
 pub enum RecordType {
-    A,
+    A = 1,
     NS,
     MD,
     MF,
@@ -28,8 +33,9 @@ pub enum RecordType {
     TXT,
 }
 
+#[derive(Clone, Copy)]
 pub enum QuestionClass {
-    IN=1,
+    IN = 1,
 }
 
 /// Header is always 12bytes inside a raw packet
@@ -54,10 +60,10 @@ impl Header {
         None
     }
 
-    pub fn to_bytes(&self) -> Box<[u8]> {
-        // 1. try allocating 12 bytes on the heap
-        //
-        let mut header_data = Box::new([0; 12]);
+    pub fn to_bytes(&self, header_data: &mut [u8]) {
+        if header_data.len() < 12 {
+            return;
+        }
 
         // identifier stored in big endian format
         header_data[0] = ((self.identifier & 0xFF00) >> 8) as u8;
@@ -83,15 +89,31 @@ impl Header {
         header_data[10] = ((self.additional_record_count & 0xFF00) >> 8) as u8;
         header_data[11] = (self.additional_record_count & 0x00FF) as u8;
 
-        header_data
+        // header_data
     }
 }
 
-
 pub struct Question {
     pub domain_name: String,
-    pub question_type: RecordType,
-    pub class: QuestionClass,
+    pub question_type: RecordType, //2 bytes
+    pub class: QuestionClass,      // 2 bytes
+}
+
+impl Question {
+    pub fn to_bytes(&self, data: &mut Vec<u8>) {
+        // check if output has enough capacity to store all data
+        // worst case: domain bytes + labels + terminator + qtype + qclass
+        data.reserve(self.domain_name.len() + self.domain_name.split('.').count() + 1 + 4);
+
+        for label in self.domain_name.split('.') {
+            data.push(label.len() as u8);
+            data.extend_from_slice(label.as_bytes());
+        }
+
+        data.push(0); // terminator
+        data.extend_from_slice(&(self.question_type as u16).to_be_bytes());
+        data.extend_from_slice(&(self.class as u16).to_be_bytes());
+    }
 }
 
 pub struct DNSPacket {
@@ -104,7 +126,17 @@ impl DNSPacket {
         None
     }
 
-    pub fn to_bytes(&self) -> Box<[u8]> {
-        self.header.to_bytes()
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut data = Vec::<u8>::with_capacity(server_consts::BUF_SIZE);
+
+        // push header data
+        self.header.to_bytes(&mut data);
+
+        // push question data
+        for question in &self.questions {
+            question.to_bytes(&mut data);
+        }
+
+        data
     }
 }
