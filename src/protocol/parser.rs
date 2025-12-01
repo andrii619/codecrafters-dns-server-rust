@@ -60,36 +60,25 @@ impl Header {
         None
     }
 
-    pub fn to_bytes(&self, header_data: &mut [u8]) {
-        if header_data.len() < 12 {
-            return;
-        }
-
+    pub fn to_bytes(&self, header_data: &mut Vec<u8>) {
         // identifier stored in big endian format
-        header_data[0] = ((self.identifier & 0xFF00) >> 8) as u8;
-        header_data[1] = (self.identifier & 0x00FF) as u8;
+        header_data.extend_from_slice(&(self.identifier.to_be_bytes()));
 
-        header_data[2] = ((self.is_response as u8) << 7)
+        header_data.push(((self.is_response as u8) << 7)
             | ((self.opcode & 0xF) << 3)
             | ((self.authoritative as u8) << 2)
             | ((self.truncation as u8) << 1)
-            | ((self.recursion_desired as u8) << 0);
+            | ((self.recursion_desired as u8) << 0));
 
-        header_data[3] = ((self.recursion_available as u8) << 7) | (self.response_code & 0xF);
+        header_data.push(((self.recursion_available as u8) << 7) | (self.response_code & 0xF));
 
-        header_data[4] = ((self.question_count & 0xFF00) >> 8) as u8;
-        header_data[5] = (self.question_count & 0x00FF) as u8;
+        header_data.extend_from_slice(&(self.question_count.to_be_bytes()));
 
-        header_data[6] = ((self.answer_record_count & 0xFF00) >> 8) as u8;
-        header_data[7] = (self.answer_record_count & 0x00FF) as u8;
+        header_data.extend_from_slice(&(self.answer_record_count.to_be_bytes()));
 
-        header_data[8] = ((self.authority_record_count & 0xFF00) >> 8) as u8;
-        header_data[9] = (self.authority_record_count & 0x00FF) as u8;
+        header_data.extend_from_slice(&(self.authority_record_count.to_be_bytes()));
 
-        header_data[10] = ((self.additional_record_count & 0xFF00) >> 8) as u8;
-        header_data[11] = (self.additional_record_count & 0x00FF) as u8;
-
-        // header_data
+        header_data.extend_from_slice(&(self.additional_record_count.to_be_bytes()));
     }
 }
 
