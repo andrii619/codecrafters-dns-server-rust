@@ -4,7 +4,7 @@ use std::net::UdpSocket;
 // declare a rust modul
 use codecrafters_dns_server::server_consts::{BUF_SIZE, SERVER_ADDR};
 
-use codecrafters_dns_server::protocol::parser::{self, Header, Question};
+use codecrafters_dns_server::protocol::parser::{self, Answer, Header, Question};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -31,14 +31,22 @@ fn main() {
                         reserved: 0,
                         response_code: 0,
                         question_count: 1,
-                        answer_record_count: 0,
-                        authority_record_count: 0,
-                        additional_record_count: 0,
+                        answer_count: 1,
+                        authority_count: 0,
+                        additional_count: 0,
                     },
                     questions: vec![Question {
                         domain_name: "codecrafters.io".to_string(),
-                        question_type: parser::RecordType::A,
-                        class: parser::QuestionClass::IN,
+                        record_type: parser::RecordType::A,
+                        class: parser::RecordClass::IN,
+                    }],
+                    answers: vec![Answer {
+                        domain_name: "codecrafters.io".to_string(),
+                        record_type: parser::RecordType::A,
+                        class: parser::RecordClass::IN,
+                        time_to_live: 60,
+                        data_length: 4,
+                        data: vec![0x08, 0x08, 0x08, 0x08],
                     }],
                 };
 

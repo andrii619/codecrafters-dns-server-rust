@@ -34,7 +34,7 @@ pub enum RecordType {
 }
 
 #[derive(Clone, Copy)]
-pub enum QuestionClass {
+pub enum RecordClass {
     IN = 1,
 }
 
@@ -50,9 +50,9 @@ pub struct Header {
     pub reserved: u8,    // [3] 3 bits
     pub response_code: u8, // 4bit response code
     pub question_count: u16,
-    pub answer_record_count: u16,
-    pub authority_record_count: u16,  // [ ]
-    pub additional_record_count: u16, // [10:11]
+    pub answer_count: u16,
+    pub authority_count: u16,  // [ ]
+    pub additional_count: u16, // [10:11]
 }
 
 impl Header {
@@ -64,28 +64,30 @@ impl Header {
         // identifier stored in big endian format
         header_data.extend_from_slice(&(self.identifier.to_be_bytes()));
 
-        header_data.push(((self.is_response as u8) << 7)
-            | ((self.opcode & 0xF) << 3)
-            | ((self.authoritative as u8) << 2)
-            | ((self.truncation as u8) << 1)
-            | ((self.recursion_desired as u8) << 0));
+        header_data.push(
+            ((self.is_response as u8) << 7)
+                | ((self.opcode & 0xF) << 3)
+                | ((self.authoritative as u8) << 2)
+                | ((self.truncation as u8) << 1)
+                | ((self.recursion_desired as u8) << 0),
+        );
 
         header_data.push(((self.recursion_available as u8) << 7) | (self.response_code & 0xF));
 
         header_data.extend_from_slice(&(self.question_count.to_be_bytes()));
 
-        header_data.extend_from_slice(&(self.answer_record_count.to_be_bytes()));
+        header_data.extend_from_slice(&(self.answer_count.to_be_bytes()));
 
-        header_data.extend_from_slice(&(self.authority_record_count.to_be_bytes()));
+        header_data.extend_from_slice(&(self.authority_count.to_be_bytes()));
 
-        header_data.extend_from_slice(&(self.additional_record_count.to_be_bytes()));
+        header_data.extend_from_slice(&(self.additional_count.to_be_bytes()));
     }
 }
 
 pub struct Question {
     pub domain_name: String,
-    pub question_type: RecordType, //2 bytes
-    pub class: QuestionClass,      // 2 bytes
+    pub record_type: RecordType, //2 bytes
+    pub class: RecordClass,      // 2 bytes
 }
 
 impl Question {
@@ -100,14 +102,46 @@ impl Question {
         }
 
         data.push(0); // terminator
-        data.extend_from_slice(&(self.question_type as u16).to_be_bytes());
+        data.extend_from_slice(&(self.record_type as u16).to_be_bytes());
         data.extend_from_slice(&(self.class as u16).to_be_bytes());
+    }
+}
+
+pub struct Answer {
+    pub domain_name: String,
+    pub record_type: RecordType, //2 bytes
+    pub class: RecordClass,      // 2 bytes
+    pub time_to_live: u32,
+    pub data_length: u16,
+    pub data: Vec<u8>,
+}
+
+impl Answer {
+    pub fn to_bytes(&self, data: &mut Vec<u8>) {
+        for label in self.domain_name.split('.') {
+            data.push(label.len() as u8);
+            data.extend_from_slice(label.as_bytes());
+        }
+
+        data.push(0); // terminator
+        data.extend_from_slice(&(self.record_type as u16).to_be_bytes());
+        data.extend_from_slice(&(self.class as u16).to_be_bytes());
+
+        // time to live
+        data.extend_from_slice(&(self.time_to_live.to_be_bytes()));
+
+        // data length
+        data.extend_from_slice(&(self.data_length.to_be_bytes()));
+
+        // data section
+        data.extend_from_slice(&(self.data.as_slice()));
     }
 }
 
 pub struct DNSPacket {
     pub header: Header,
     pub questions: Vec<Question>,
+    pub answers: Vec<Answer>,
 }
 
 impl DNSPacket {
@@ -124,6 +158,11 @@ impl DNSPacket {
         // push question data
         for question in &self.questions {
             question.to_bytes(&mut data);
+        }
+
+        // push answer data
+        for answer in &self.answers {
+            answer.to_bytes(&mut data);
         }
 
         data
