@@ -4,7 +4,7 @@ use std::net::UdpSocket;
 // declare a rust modul
 use codecrafters_dns_server::server_consts::{BUF_SIZE, SERVER_ADDR};
 
-use codecrafters_dns_server::protocol::parser::{self, Answer, Header, Question};
+use codecrafters_dns_server::protocol::parser::{self, Answer, DNSPacket, Header, Question};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -18,18 +18,32 @@ fn main() {
             Ok((size, source)) => {
                 println!("Received {} bytes from {}", size, source);
 
+                let request_packet_res = DNSPacket::from_bytes(&buf);
+
+                let request_packet = match request_packet_res {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        println!("Error parcing the packet {}", e);
+                        continue;
+                    }
+                };
+
                 // create a DNS packet for the response
                 let response_packet = parser::DNSPacket {
                     header: Header {
-                        identifier: 1234,
+                        identifier: request_packet.header.identifier,
                         is_response: true,
-                        opcode: 0,
+                        opcode: request_packet.header.opcode,
                         authoritative: false,
                         truncation: false,
-                        recursion_desired: false,
+                        recursion_desired: request_packet.header.recursion_desired,
                         recursion_available: false,
                         reserved: 0,
-                        response_code: 0,
+                        response_code: if request_packet.header.opcode == 0 {
+                            0
+                        } else {
+                            4
+                        },
                         question_count: 1,
                         answer_count: 1,
                         authority_count: 0,
