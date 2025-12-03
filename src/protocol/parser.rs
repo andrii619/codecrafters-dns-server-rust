@@ -49,16 +49,16 @@ pub struct Header {
     pub recursion_available: bool, // [3]
     pub reserved: u8,    // [3] 3 bits
     pub response_code: u8, // 4bit response code
-    pub question_count: u16,
-    pub answer_count: u16,
-    pub authority_count: u16,  // [ ]
+    pub question_count: u16, // [4:5]
+    pub answer_count: u16, // [6:7]
+    pub authority_count: u16, // [8:9]
     pub additional_count: u16, // [10:11]
 }
 
 impl Header {
-    pub fn from_bytes(data: &[u8]) -> Option<Self> {
-        None
-    }
+    //pub fn from_bytes(data: &[u8]) -> Option<Self> {
+    //    None
+    //}
 
     pub fn to_bytes(&self, header_data: &mut Vec<u8>) {
         // identifier stored in big endian format
@@ -144,9 +144,66 @@ pub struct DNSPacket {
     pub answers: Vec<Answer>,
 }
 
+//pub struct Header {
+//    pub identifier: u16, // [0:1] A random ID assigned to query packets. Response packets must reply with the same ID.
+//    pub is_response: bool, //[2] 1 for reply packet, 0 for a question packet
+//    pub opcode: u8,      //[2] 4 bits
+//    pub authoritative: bool, // [2]
+//    pub truncation: bool, // [2]
+//    pub recursion_desired: bool, // [2]
+//    pub recursion_available: bool, // [3]
+//    pub reserved: u8,    // [3]   3 bits
+//    pub response_code: u8, // [3] 4bit response code
+//    pub question_count: u16,    // [4:5]
+//    pub answer_count: u16,      // [6:7]
+//    pub authority_count: u16,  // [8:9]
+//    pub additional_count: u16, // [10:11]
+//}
 impl DNSPacket {
-    pub fn from_bytes(data: &[u8]) -> Option<Self> {
-        None
+    pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
+        if data.len() < 12 {
+            return Err(String::from("Not enough data"));
+        }
+
+        let identifier = u16::from_be_bytes([data[0], data[1]]);
+        let is_response = ((data[2] & 0x80) >> 7) == 1;
+        let opcode: u8 = (data[2] & 0x78) >> 3;
+        let authoritative = ((data[2] & 0x04) >> 2) == 1;
+        let truncation = ((data[2] & 0x02) >> 1) == 1;
+        let recursion_desired = (data[2] & 0x01) == 1;
+        let recursion_available = ((data[3] & 0x80) >> 7) == 1;
+        let reserved = (data[3] & 0x70) >> 4;
+        let response_code = data[3] & 0x0F;
+        let question_count = u16::from_be_bytes([data[4], data[5]]);
+        let answer_count = u16::from_be_bytes([data[6], data[7]]);
+        let authority_count = u16::from_be_bytes([data[8], data[9]]);
+        let additional_count = u16::from_be_bytes([data[10], data[11]]);
+
+        if reserved != 0 {
+            return Err(String::from(
+                "Not valid DNS packet. Reserved bits are not zero",
+            ));
+        }
+
+        Ok(DNSPacket {
+            header: Header {
+                identifier,
+                is_response,
+                opcode,
+                authoritative,
+                truncation,
+                recursion_desired,
+                recursion_available,
+                reserved,
+                response_code,
+                question_count,
+                answer_count,
+                authority_count,
+                additional_count,
+            },
+            questions: vec![],
+            answers: vec![],
+        })
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
