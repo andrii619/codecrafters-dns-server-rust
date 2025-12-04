@@ -27,6 +27,7 @@ fn main() {
                         continue;
                     }
                 };
+                let tmp_name = request_packet.questions[0].domain_name.clone();
 
                 // create a DNS packet for the response
                 let response_packet = parser::DNSPacket {
@@ -45,13 +46,13 @@ fn main() {
                             4
                         },
                         question_count: request_packet.header.question_count,
-                        answer_count: 1,
+                        answer_count: request_packet.header.question_count,
                         authority_count: 0,
                         additional_count: 0,
                     },
                     questions: request_packet.questions,
                     answers: vec![Answer {
-                        domain_name: "codecrafters.io".to_string(),
+                        domain_name: tmp_name,
                         record_type: parser::RecordType::A,
                         class: parser::RecordClass::IN,
                         time_to_live: 60,
