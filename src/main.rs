@@ -44,16 +44,12 @@ fn main() {
                         } else {
                             4
                         },
-                        question_count: 1,
+                        question_count: request_packet.header.question_count,
                         answer_count: 1,
                         authority_count: 0,
                         additional_count: 0,
                     },
-                    questions: vec![Question {
-                        domain_name: "codecrafters.io".to_string(),
-                        record_type: parser::RecordType::A,
-                        class: parser::RecordClass::IN,
-                    }],
+                    questions: request_packet.questions,
                     answers: vec![Answer {
                         domain_name: "codecrafters.io".to_string(),
                         record_type: parser::RecordType::A,
