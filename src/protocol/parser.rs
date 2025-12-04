@@ -184,6 +184,72 @@ impl DNSPacket {
                 "Not valid DNS packet. Reserved bits are not zero",
             ));
         }
+        
+        
+        let mut questions = Vec::<Question>::new();
+        let mut answers = Vec::<Answer>::new();
+        
+        // parse questions 
+        let mut data_idx: usize = 12; // one past the header
+        let mut questions_parsed =0;
+        for question_num in 0..question_count {
+            if data_idx >= data.len() {
+                break;
+            }
+            
+            // try to parse current question
+            let mut domain_name = String::new();
+            let mut first_label = true;
+            while data_idx < data.len() && data[data_idx] != 0 {
+                // this data belongs to current question
+                let char_count = data[data_idx] as usize;
+                data_idx += 1;
+                if !first_label {
+                    domain_name.push('.');
+                }
+                first_label = false;
+                
+                // push character_count characters into the string buffer
+                let start_idx = data_idx;
+                while data_idx < data.len() && data_idx < (start_idx+char_count) {
+                    domain_name.push(data[data_idx] as char);
+                    data_idx += 1;
+                }
+            }
+            
+            
+            // here we should have \x00 byte
+            if data_idx+5 > data.len() || data[data_idx] != 0 
+            {
+                return Err(String::from("data label not ending in 0 or not enough data"));
+            }
+            data_idx += 1;
+            
+            let record_type_num = u16::from_be_bytes([data[data_idx], data[data_idx+1]]);
+            data_idx += 2;
+            let record_type = match record_type_num {
+                1 => RecordType::A,
+                _ => {return Err(String::from("Record type error"))}
+            };
+            
+            
+            let class_num = u16::from_be_bytes([data[data_idx], data[data_idx+1]]);
+            data_idx += 2;
+            
+            let class = match class_num {
+                1 => RecordClass::IN,
+                _ => {return Err(String::from("bad record class"))}
+            };
+            
+            
+            questions.push(Question { domain_name, record_type, class });
+            questions_parsed += 1;
+        }
+        
+        if questions_parsed != question_count {
+            return Err(String::from("Not enough data to parse all questions"));
+        }
+
 
         Ok(DNSPacket {
             header: Header {
@@ -201,8 +267,8 @@ impl DNSPacket {
                 authority_count,
                 additional_count,
             },
-            questions: vec![],
-            answers: vec![],
+            questions,
+            answers,
         })
     }
 
