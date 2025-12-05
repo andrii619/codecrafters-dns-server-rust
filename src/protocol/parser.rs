@@ -160,6 +160,11 @@ pub struct DNSPacket {
 //    pub additional_count: u16, // [10:11]
 //}
 impl DNSPacket {
+    ///For a proper implementation, you'd typically need a recursive helper function that:
+    ///- Takes a starting offset and the full packet data
+    ///- Reads labels until it hits a null terminator OR a pointer
+    ///- If it hits a pointer, recursively calls itself at the pointer offset
+    ///- Tracks visited offsets to prevent infinite loops
     pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
         if data.len() < 12 {
             return Err(String::from("Not enough data"));
