@@ -1,6 +1,6 @@
-use std::io::Read;
+// use std::io::Read;
 
-use bytes::BufMut;
+// use bytes::BufMut;
 
 ///
 /// DNS Message:
@@ -12,6 +12,7 @@ use bytes::BufMut;
 /// |
 /// |
 use crate::server_consts;
+// use tracing::{debug, error, trace};
 
 #[derive(Clone, Copy)]
 pub enum RecordType {
@@ -239,12 +240,12 @@ impl DNSPacket {
         }
 
         let mut questions = Vec::<Question>::new();
-        let mut answers = Vec::<Answer>::new();
+        let answers = Vec::<Answer>::new();
 
         // parse questions
         let mut data_idx: usize = 12; // one past the header
         let mut questions_parsed = 0;
-        for question_num in 0..question_count {
+        for _ in 0..question_count {
             if data_idx >= data.len() {
                 break;
             }

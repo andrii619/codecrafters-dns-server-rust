@@ -1,32 +1,67 @@
 // #[allow(unused_imports)]
 use std::net::UdpSocket;
+use tracing::{info, debug, error};
+use tracing_subscriber::{FmtSubscriber};
 
 // declare a rust modul
 use codecrafters_dns_server::server_consts::{BUF_SIZE, SERVER_ADDR};
 
-use codecrafters_dns_server::protocol::parser::{self, Answer, DNSPacket, Header, Question};
+use codecrafters_dns_server::protocol::parser::{self, Answer, DNSPacket, Header};
 
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
+    // Initialize tracing subscriber
+    // construct a subscriber that prints formatted traces to stdout
+    let subscriber = FmtSubscriber::new();
+    // use that subscriber to process traces emitted after this point
+    let log_res = tracing::subscriber::set_global_default(subscriber);
 
+    if log_res.is_err() {
+        println!("Failed to setup logging. exiting");
+        return;
+    }
+
+    info!("DNS server starting up...");
+
+    info!("Binding to {}", SERVER_ADDR);
     let udp_socket = UdpSocket::bind(SERVER_ADDR).expect("Failed to bind to address");
     let mut buf = [0; BUF_SIZE];
+
+    info!("DNS server ready to receive requests");
 
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
-                println!("Received {} bytes from {}", size, source);
+                info!(size = size, source = %source, "Received DNS request");
+                debug!("First few bytes: {:?}", &buf[..std::cmp::min(16, size)]);
 
                 let request_packet_res = DNSPacket::from_bytes(&buf);
 
                 let request_packet = match request_packet_res {
-                    Ok(packet) => packet,
+                    Ok(packet) => {
+                        debug!(
+                            id = packet.header.identifier,
+                            opcode = packet.header.opcode,
+                            recursion_desired = packet.header.recursion_desired,
+                            question_count = packet.header.question_count,
+                            "Request packet parsed successfully"
+                        );
+                        packet
+                    },
                     Err(e) => {
-                        println!("Error parcing the packet {}", e);
+                        error!(error = %e, "Error parsing DNS packet");
                         continue;
                     }
                 };
+
+                if !request_packet.questions.is_empty() {
+                    let question = &request_packet.questions[0];
+                    info!(
+                        domain = %question.domain_name,
+                        type_code = question.record_type as u16,
+                        "DNS query for domain"
+                    );
+                }
+
                 let tmp_name = request_packet.questions[0].domain_name.clone();
 
                 // create a DNS packet for the response
@@ -52,7 +87,7 @@ fn main() {
                     },
                     questions: request_packet.questions,
                     answers: vec![Answer {
-                        domain_name: tmp_name,
+                        domain_name: tmp_name.clone(),
                         record_type: parser::RecordType::A,
                         class: parser::RecordClass::IN,
                         time_to_live: 60,
@@ -61,19 +96,22 @@ fn main() {
                     }],
                 };
 
+                debug!("Creating response with IP 8.8.8.8 for domain {}", tmp_name);
                 let response_data = response_packet.to_bytes();
 
-                println!(
-                    "some bytes: {:X} {:X} {:X} {:X}",
-                    response_data[0], response_data[1], response_data[2], response_data[3]
+                debug!(
+                    first_bytes = format!("{:02X} {:02X} {:02X} {:02X}",
+                    response_data[0], response_data[1], response_data[2], response_data[3]),
+                    "Response header bytes"
                 );
 
-                udp_socket
-                    .send_to(&response_data, source)
-                    .expect("Failed to send response");
+                match udp_socket.send_to(&response_data, source) {
+                    Ok(sent) => info!(bytes = sent, "Response sent successfully"),
+                    Err(e) => error!(error = %e, "Failed to send DNS response")
+                };
             }
             Err(e) => {
-                eprintln!("Error receiving data: {}", e);
+                error!(error = %e, "Error receiving data");
                 break;
             }
         }
