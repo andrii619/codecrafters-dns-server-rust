@@ -249,6 +249,12 @@ impl DNSPacket {
                 break;
             }
 
+            if data[data_idx] & 0xC0 == 0xC0 {
+                // we have encountered a comprssed question. skip for now
+                data_idx += 6;
+                continue;
+            }
+
             // try to parse current question
             let domain_name_opt = DNSPacket::domain_name_from_offset(data, data_idx);
             let (domain_name, bytes_read) = match domain_name_opt {
