@@ -165,6 +165,54 @@ impl DNSPacket {
     ///- Reads labels until it hits a null terminator OR a pointer
     ///- If it hits a pointer, recursively calls itself at the pointer offset
     ///- Tracks visited offsets to prevent infinite loops
+
+    /// parse a hostname from DNS packet data starting at an offset
+    /// Returns parsed domain name as a string and how many bytes were parsed
+    /// support parsing a packet slice that ONLY has the hostname string data in it terminated by the 0x00 byte
+    fn domain_name_from_offset(data: &[u8], offset: usize) -> Result<(String, usize), String> {
+        if offset >= data.len() || data.len() == 0 {
+            return Err(String::from("Not enough data to parse domainname"));
+        }
+
+        let mut data_idx = offset;
+
+        let mut domain_name = String::new();
+        let mut first_label = true;
+        while data_idx < data.len() && data[data_idx] != 0 {
+            // this data belongs to current question
+            let char_count = data[data_idx] as usize;
+            data_idx += 1;
+            if !first_label {
+                domain_name.push('.');
+            }
+            first_label = false;
+
+            // push character_count characters into the string buffer
+            let start_idx = data_idx;
+            while data_idx < data.len() && data_idx < (start_idx + char_count) {
+                domain_name.push(data[data_idx] as char);
+                data_idx += 1;
+            }
+        }
+
+        // need to check if we managed to parse all hostname bytes before running out of data
+        // either we ran out of data and last byte was 0x00 or we did not run out of data and last byte was 0x00
+        let last_byte = if data_idx < data.len() {
+            Some(data[data_idx])
+        } else {
+            None
+        };
+
+        // return pointing one past the 0x00 byte
+        match last_byte {
+            Some(0) => Ok((domain_name, (offset - data_idx + 1))),
+            Some(_) => Err(String::from("Last byte not null")),
+            None => Err(String::from("Not enough data")),
+        }
+
+        // Err(String::from("dwd"))
+    }
+
     pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
         if data.len() < 12 {
             return Err(String::from("Not enough data"));
@@ -189,72 +237,56 @@ impl DNSPacket {
                 "Not valid DNS packet. Reserved bits are not zero",
             ));
         }
-        
-        
+
         let mut questions = Vec::<Question>::new();
         let mut answers = Vec::<Answer>::new();
-        
-        // parse questions 
+
+        // parse questions
         let mut data_idx: usize = 12; // one past the header
-        let mut questions_parsed =0;
+        let mut questions_parsed = 0;
         for question_num in 0..question_count {
             if data_idx >= data.len() {
                 break;
             }
-            
+
             // try to parse current question
-            let mut domain_name = String::new();
-            let mut first_label = true;
-            while data_idx < data.len() && data[data_idx] != 0 {
-                // this data belongs to current question
-                let char_count = data[data_idx] as usize;
-                data_idx += 1;
-                if !first_label {
-                    domain_name.push('.');
-                }
-                first_label = false;
-                
-                // push character_count characters into the string buffer
-                let start_idx = data_idx;
-                while data_idx < data.len() && data_idx < (start_idx+char_count) {
-                    domain_name.push(data[data_idx] as char);
-                    data_idx += 1;
-                }
+            let domain_name_opt = DNSPacket::domain_name_from_offset(data, data_idx);
+            let (domain_name, bytes_read) = match domain_name_opt {
+                Ok(res) => res,
+                Err(e) => return Err(e),
+            };
+            data_idx += bytes_read;
+
+            if data_idx + 4 > data.len() {
+                return Err(String::from("not enough data"));
             }
-            
-            
-            // here we should have \x00 byte
-            if data_idx+5 > data.len() || data[data_idx] != 0 
-            {
-                return Err(String::from("data label not ending in 0 or not enough data"));
-            }
-            data_idx += 1;
-            
-            let record_type_num = u16::from_be_bytes([data[data_idx], data[data_idx+1]]);
+
+            let record_type_num = u16::from_be_bytes([data[data_idx], data[data_idx + 1]]);
             data_idx += 2;
             let record_type = match record_type_num {
                 1 => RecordType::A,
-                _ => {return Err(String::from("Record type error"))}
+                _ => return Err(String::from("Record type error")),
             };
-            
-            
-            let class_num = u16::from_be_bytes([data[data_idx], data[data_idx+1]]);
+
+            let class_num = u16::from_be_bytes([data[data_idx], data[data_idx + 1]]);
             data_idx += 2;
-            
+
             let class = match class_num {
                 1 => RecordClass::IN,
-                _ => {return Err(String::from("bad record class"))}
+                _ => return Err(String::from("bad record class")),
             };
-            
-            
-            questions.push(Question { domain_name, record_type, class });
+
+            questions.push(Question {
+                domain_name,
+                record_type,
+                class,
+            });
             questions_parsed += 1;
         }
-        
+
         if questions_parsed != question_count {
             return Err(String::from("Not enough data to parse all questions"));
         }
-
 
         Ok(DNSPacket {
             header: Header {
