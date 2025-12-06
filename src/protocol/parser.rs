@@ -48,7 +48,9 @@ pub struct Header {
     pub truncation: bool, // [2]
     pub recursion_desired: bool, // [2]
     pub recursion_available: bool, // [3]
-    pub reserved: u8,    // [3] 3 bits
+    pub reserved: bool,    // [3] 1 bit
+    pub authenticated_data: bool, // [3] 1 bit DNSSEC
+    pub checking_disabled: bool, // [3] b bit DNSSEC
     pub response_code: u8, // 4bit response code
     pub question_count: u16, // [4:5]
     pub answer_count: u16, // [6:7]
@@ -73,7 +75,10 @@ impl Header {
                 | ((self.recursion_desired as u8) << 0),
         );
 
-        header_data.push(((self.recursion_available as u8) << 7) | (self.response_code & 0xF));
+        header_data.push(((self.recursion_available as u8) << 7) |
+            ((self.authenticated_data as u8) << 5) |
+            ((self.checking_disabled as u8) << 4) |
+            (self.response_code & 0xF));
 
         header_data.extend_from_slice(&(self.question_count.to_be_bytes()));
 
@@ -226,14 +231,16 @@ impl DNSPacket {
         let truncation = ((data[2] & 0x02) >> 1) == 1;
         let recursion_desired = (data[2] & 0x01) == 1;
         let recursion_available = ((data[3] & 0x80) >> 7) == 1;
-        let reserved = (data[3] & 0x70) >> 4;
+        let reserved = ((data[3] & 0x40) >> 6)==1;
+        let authenticated_data = ((data[3] & 0x20) >> 5)==1;
+        let checking_disabled = ((data[3] & 0x10) >> 4)==1;
         let response_code = data[3] & 0x0F;
         let question_count = u16::from_be_bytes([data[4], data[5]]);
         let answer_count = u16::from_be_bytes([data[6], data[7]]);
         let authority_count = u16::from_be_bytes([data[8], data[9]]);
         let additional_count = u16::from_be_bytes([data[10], data[11]]);
 
-        if reserved != 0 {
+        if reserved {
             return Err(String::from(
                 "Not valid DNS packet. Reserved bits are not zero",
             ));
@@ -305,6 +312,8 @@ impl DNSPacket {
                 recursion_desired,
                 recursion_available,
                 reserved,
+                authenticated_data,
+                checking_disabled,
                 response_code,
                 question_count,
                 answer_count,

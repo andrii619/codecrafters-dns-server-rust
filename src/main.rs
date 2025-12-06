@@ -74,7 +74,9 @@ fn main() {
                         truncation: false,
                         recursion_desired: request_packet.header.recursion_desired,
                         recursion_available: false,
-                        reserved: 0,
+                        reserved: false,
+                        authenticated_data: false,
+                        checking_disabled: false,
                         response_code: if request_packet.header.opcode == 0 {
                             0
                         } else {
