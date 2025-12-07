@@ -269,13 +269,13 @@ impl DNSPacket {
                     return Err(String::from("Compressed pointer is too large"));
                 }
                 //let domain_name_res = 
-                tracing::debug!("Reading compressed domain name at {} offset", domain_name_pointer);
+                tracing::info!("Reading compressed domain name at {} offset", domain_name_pointer);
                 DNSPacket::domain_name_from_offset(data, domain_name_pointer as usize)
             }
             else {
                 // try to parse current uncompressed question
                 //let domain_name_res = 
-                tracing::debug!("Reading domain name at {} offset", data_idx);
+                tracing::info!("Reading domain name at {} offset", data_idx);
                 DNSPacket::domain_name_from_offset(data, data_idx)
             };
             
@@ -287,7 +287,7 @@ impl DNSPacket {
                 return Err(String::from("error reading domain name"));
             }
             
-            tracing::debug!("Read domain name: {}", domain_name);
+            tracing::info!("Read domain name: {}", domain_name);
             
             data_idx += if compressed_question {2} else {bytes_read};
             //domain_name_opt = Some(domain_name);
