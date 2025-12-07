@@ -211,7 +211,7 @@ impl DNSPacket {
 
         // return pointing one past the 0x00 byte
         match last_byte {
-            Some(0) => Ok((domain_name, (offset - data_idx + 1))),
+            Some(0) => Ok((domain_name, (data_idx - offset + 1))),
             Some(_) => Err(String::from("Last byte not null")),
             None => Err(String::from("Not enough data")),
         }
@@ -269,6 +269,11 @@ impl DNSPacket {
                 Ok(res) => res,
                 Err(e) => return Err(e),
             };
+            
+            if bytes_read == 0 || bytes_read >= server_consts::BUF_SIZE {
+                return Err(String::from("error reading domain name"));
+            }
+            
             data_idx += bytes_read;
 
             if data_idx + 4 > data.len() {
