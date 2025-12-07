@@ -258,11 +258,12 @@ impl DNSPacket {
             }
             
             //let mut domain_name_opt: Option<String> = None;
-            
+            let mut compressed_question = false;
             let domain_name_res = if data[data_idx] & 0xC0 == 0xC0 {
                 // we have encountered a comprssed question. skip for now
                 //data_idx += 6;
                 //continue;
+                compressed_question=true;
                 let domain_name_pointer = u16::from_be_bytes([data[data_idx],data[data_idx+1]]) & 0x3F_FF;
                 if domain_name_pointer as usize > server_consts::BUF_SIZE {
                     return Err(String::from("Compressed pointer is too large"));
@@ -284,7 +285,7 @@ impl DNSPacket {
                 return Err(String::from("error reading domain name"));
             }
             
-            data_idx += bytes_read;
+            data_idx += if compressed_question {2} else {bytes_read};
             //domain_name_opt = Some(domain_name);
             // see if we can parse the record type and class number
             if data_idx + 4 > data.len() {
