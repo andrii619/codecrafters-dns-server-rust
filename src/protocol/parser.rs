@@ -256,26 +256,37 @@ impl DNSPacket {
             if data_idx >= data.len() {
                 break;
             }
-
-            if data[data_idx] & 0xC0 == 0xC0 {
+            
+            //let mut domain_name_opt: Option<String> = None;
+            
+            let domain_name_res = if data[data_idx] & 0xC0 == 0xC0 {
                 // we have encountered a comprssed question. skip for now
-                data_idx += 6;
-                continue;
+                //data_idx += 6;
+                //continue;
+                let domain_name_pointer = u16::from_be_bytes([data[data_idx],data[data_idx+1]]) & 0x3F_FF;
+                if domain_name_pointer as usize > server_consts::BUF_SIZE {
+                    return Err(String::from("Compressed pointer is too large"));
+                }
+                //let domain_name_res = 
+                DNSPacket::domain_name_from_offset(data, domain_name_pointer as usize)
             }
-
-            // try to parse current question
-            let domain_name_opt = DNSPacket::domain_name_from_offset(data, data_idx);
-            let (domain_name, bytes_read) = match domain_name_opt {
+            else {
+                // try to parse current uncompressed question
+                //let domain_name_res = 
+                DNSPacket::domain_name_from_offset(data, data_idx)
+            };
+            
+            let (domain_name, bytes_read) = match domain_name_res {
                 Ok(res) => res,
                 Err(e) => return Err(e),
             };
-            
             if bytes_read == 0 || bytes_read >= server_consts::BUF_SIZE {
                 return Err(String::from("error reading domain name"));
             }
             
             data_idx += bytes_read;
-
+            //domain_name_opt = Some(domain_name);
+            // see if we can parse the record type and class number
             if data_idx + 4 > data.len() {
                 return Err(String::from("not enough data"));
             }
