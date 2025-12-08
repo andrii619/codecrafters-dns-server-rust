@@ -171,6 +171,60 @@ impl DNSPacket {
     ///- Reads labels until it hits a null terminator OR a pointer
     ///- If it hits a pointer, recursively calls itself at the pointer offset
     ///- Tracks visited offsets to prevent infinite loops
+    /// 
+    fn label_from_offset(data: &[u8], offset: usize, first_label: bool, result: &mut String) -> Result< usize, String> {
+        if offset >= data.len() || data.len() == 0 {
+            return Err(String::from("Not enough data to parse domainname"));
+        }
+       
+       if data[offset] == 0 {
+            // sequence of labels terminates with null byte
+            return Ok(1);
+       }
+        
+        if data[offset] & 0xC0 == 0xC0 {
+            // this is a compressed label
+            
+            let domain_name_pointer = u16::from_be_bytes([data[offset],data[offset+1]]) & 0x3F_FF;
+            if domain_name_pointer as usize > server_consts::BUF_SIZE {
+                return Err(String::from("Compressed pointer is too large"));
+            }
+            //let domain_name_res = 
+            tracing::info!("Reading compressed label at {} offset", domain_name_pointer);
+            if let Ok(bytes_read) = DNSPacket::label_from_offset(data, domain_name_pointer as usize, first_label, result) {
+                return Ok(2);// size of the pointer
+            } 
+            else {
+                // error occurred
+                return Err(String::from(""));
+            }
+        }
+        
+        // this is not a compressed label
+        
+        let mut data_idx = offset;
+        let mut current_label = String::new();
+        
+        let char_count = data[data_idx] as usize;
+        data_idx += 1;
+        
+        
+        if !first_label {
+            result.push('.');
+        }
+        
+        // push character_count characters into the string buffer
+        let start_idx = data_idx;
+        while data_idx < data.len() && data_idx < (start_idx + char_count) {
+            result.push(data[data_idx] as char);
+            data_idx += 1;
+        }
+        
+        // go to the next label
+        
+        //Err(String::from("fff"))
+        DNSPacket::label_from_offset(data, data_idx, false, result)
+    }
 
     /// parse a hostname from DNS packet data starting at an offset
     /// Returns parsed domain name as a string and how many bytes were parsed
@@ -183,6 +237,12 @@ impl DNSPacket {
         let mut data_idx = offset;
 
         let mut domain_name = String::new();
+        
+        // end of domain name is 0x00 byte
+        if data[data_idx] == 0 {
+            return Ok((domain_name,0));
+        }
+        
         let mut first_label = true;
         while data_idx < data.len() && data[data_idx] != 0 {
             // this data belongs to current question
