@@ -246,65 +246,11 @@ impl DNSPacket {
         // go to the next label
         tracing::info!("Parsed Current uncompressed label: {}", current_label);
 
-        //Err(String::from("fff"))
         let recursive_res = DNSPacket::label_from_offset(data, data_idx, false, result);
         match recursive_res {
             Ok(rec_len) => Ok(rec_len + (data_idx - offset)), // recursivelly add the number of bytes read
             Err(e) => Err(e),
         }
-    }
-
-    /// parse a hostname from DNS packet data starting at an offset
-    /// Returns parsed domain name as a string and how many bytes were parsed
-    /// support parsing a packet slice that ONLY has the hostname string data in it terminated by the 0x00 byte
-    fn domain_name_from_offset(data: &[u8], offset: usize) -> Result<(String, usize), String> {
-        if offset >= data.len() || data.len() == 0 {
-            return Err(String::from("Not enough data to parse domainname"));
-        }
-
-        let mut data_idx = offset;
-
-        let mut domain_name = String::new();
-
-        // end of domain name is 0x00 byte
-        if data[data_idx] == 0 {
-            return Ok((domain_name, 0));
-        }
-
-        let mut first_label = true;
-        while data_idx < data.len() && data[data_idx] != 0 {
-            // this data belongs to current question
-            let char_count = data[data_idx] as usize;
-            data_idx += 1;
-            if !first_label {
-                domain_name.push('.');
-            }
-            first_label = false;
-
-            // push character_count characters into the string buffer
-            let start_idx = data_idx;
-            while data_idx < data.len() && data_idx < (start_idx + char_count) {
-                domain_name.push(data[data_idx] as char);
-                data_idx += 1;
-            }
-        }
-
-        // need to check if we managed to parse all hostname bytes before running out of data
-        // either we ran out of data and last byte was 0x00 or we did not run out of data and last byte was 0x00
-        let last_byte = if data_idx < data.len() {
-            Some(data[data_idx])
-        } else {
-            None
-        };
-
-        // return pointing one past the 0x00 byte
-        match last_byte {
-            Some(0) => Ok((domain_name, (data_idx - offset + 1))),
-            Some(_) => Err(String::from("Last byte not null")),
-            None => Err(String::from("Not enough data")),
-        }
-
-        // Err(String::from("dwd"))
     }
 
     pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
@@ -353,10 +299,6 @@ impl DNSPacket {
                     Err(e) => return Err(e),
                 };
 
-            //let (domain_name, bytes_read) = match domain_name_res {
-            //    Ok(res) => res,
-            //    Err(e) => return Err(e),
-            //};
             if bytes_read == 0 || bytes_read >= server_consts::BUF_SIZE {
                 return Err(String::from("error reading domain name"));
             }
