@@ -192,6 +192,7 @@ impl DNSPacket {
             //let domain_name_res = 
             tracing::info!("Reading compressed label at {} offset", domain_name_pointer);
             if let Ok(bytes_read) = DNSPacket::label_from_offset(data, domain_name_pointer as usize, first_label, result) {
+                // we increment bytes read by the size of this pointer
                 return Ok(2);// size of the pointer
             } 
             else {
@@ -210,6 +211,7 @@ impl DNSPacket {
         
         
         if !first_label {
+            current_label.push('.');
             result.push('.');
         }
         
@@ -217,13 +219,19 @@ impl DNSPacket {
         let start_idx = data_idx;
         while data_idx < data.len() && data_idx < (start_idx + char_count) {
             result.push(data[data_idx] as char);
+            current_label.push(data[data_idx] as char); // for debugging
             data_idx += 1;
         }
         
         // go to the next label
+        tracing::info!("Parsed Current uncompressed label: {}", current_label);
         
         //Err(String::from("fff"))
-        DNSPacket::label_from_offset(data, data_idx, false, result)
+        let recursive_res = DNSPacket::label_from_offset(data, data_idx, false, result);
+        match recursive_res {
+            Ok(rec_len) => Ok(rec_len+(data_idx-offset+1)), // recursivelly add the number of bytes read
+            Err(e) => Err(e),
+        }
     }
 
     /// parse a hostname from DNS packet data starting at an offset
