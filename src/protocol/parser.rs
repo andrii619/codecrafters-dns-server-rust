@@ -181,24 +181,27 @@ impl DNSPacket {
             // sequence of labels terminates with null byte
             return Ok(1);
        }
+        let first_two_bits = data[offset] & 0xC0;
+        if first_two_bits == 0x40 || first_two_bits == 0x80 {
+            return Err(String::from("Reserved label bit pattern (01 or 10)"));
+        }
         
         if data[offset] & 0xC0 == 0xC0 {
             // this is a compressed label
-            
+            if offset + 1 >= data.len() {
+                return Err(String::from("Incomplete compression pointer"));
+            }
             let domain_name_pointer = u16::from_be_bytes([data[offset],data[offset+1]]) & 0x3F_FF;
-            if domain_name_pointer as usize > server_consts::BUF_SIZE {
+            if domain_name_pointer as usize >= data.len() {
                 return Err(String::from("Compressed pointer is too large"));
             }
             //let domain_name_res = 
             tracing::info!("Reading compressed label at {} offset", domain_name_pointer);
-            if let Ok(bytes_read) = DNSPacket::label_from_offset(data, domain_name_pointer as usize, first_label, result) {
-                // we increment bytes read by the size of this pointer
-                return Ok(2);// size of the pointer
-            } 
-            else {
-                // error occurred
-                return Err(String::from(""));
-            }
+            //if let Ok(bytes_read) =
+            match DNSPacket::label_from_offset(data, domain_name_pointer as usize, first_label, result) {
+                Ok(bytes_read) => return Ok(2),
+                Err(e) => return Err(e),
+            };
         }
         
         // this is not a compressed label
@@ -207,6 +210,11 @@ impl DNSPacket {
         let mut current_label = String::new();
         
         let char_count = data[data_idx] as usize;
+        // check if char count is more than we have data or if it exeeds the max allowed label length
+        if (char_count + data_idx) >= data.len() || char_count > 63 {
+            return Err(String::from("Not enough data"));
+        }
+        
         data_idx += 1;
         
         
@@ -229,7 +237,7 @@ impl DNSPacket {
         //Err(String::from("fff"))
         let recursive_res = DNSPacket::label_from_offset(data, data_idx, false, result);
         match recursive_res {
-            Ok(rec_len) => Ok(rec_len+(data_idx-offset+1)), // recursivelly add the number of bytes read
+            Ok(rec_len) => Ok(rec_len+(data_idx-offset)), // recursivelly add the number of bytes read
             Err(e) => Err(e),
         }
     }
@@ -325,40 +333,25 @@ impl DNSPacket {
                 break;
             }
             
-            //let mut domain_name_opt: Option<String> = None;
-            let mut compressed_question = false;
-            let domain_name_res = if data[data_idx] & 0xC0 == 0xC0 {
-                // we have encountered a comprssed question. skip for now
-                //data_idx += 6;
-                //continue;
-                compressed_question=true;
-                let domain_name_pointer = u16::from_be_bytes([data[data_idx],data[data_idx+1]]) & 0x3F_FF;
-                if domain_name_pointer as usize > server_consts::BUF_SIZE {
-                    return Err(String::from("Compressed pointer is too large"));
-                }
-                //let domain_name_res = 
-                tracing::info!("Reading compressed domain name at {} offset", domain_name_pointer);
-                DNSPacket::domain_name_from_offset(data, domain_name_pointer as usize)
-            }
-            else {
-                // try to parse current uncompressed question
-                //let domain_name_res = 
-                tracing::info!("Reading domain name at {} offset", data_idx);
-                DNSPacket::domain_name_from_offset(data, data_idx)
-            };
-            
-            let (domain_name, bytes_read) = match domain_name_res {
-                Ok(res) => res,
+            // recurively parse the domain name
+            let mut domain_name = String::new();
+            let bytes_read = match DNSPacket::label_from_offset(data, data_idx, true, &mut domain_name) {
+                Ok(bytes_read) => bytes_read,
                 Err(e) => return Err(e),
             };
+            
+            //let (domain_name, bytes_read) = match domain_name_res {
+            //    Ok(res) => res,
+            //    Err(e) => return Err(e),
+            //};
             if bytes_read == 0 || bytes_read >= server_consts::BUF_SIZE {
                 return Err(String::from("error reading domain name"));
             }
             
+            data_idx += bytes_read;
+            
             tracing::info!("Read domain name: {}", domain_name);
             
-            data_idx += if compressed_question {2} else {bytes_read};
-            //domain_name_opt = Some(domain_name);
             // see if we can parse the record type and class number
             if data_idx + 4 > data.len() {
                 return Err(String::from("not enough data"));
