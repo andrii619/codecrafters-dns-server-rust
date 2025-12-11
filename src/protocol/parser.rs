@@ -48,7 +48,7 @@ pub struct Header {
     pub truncation: bool, // [2]
     pub recursion_desired: bool, // [2]
     pub recursion_available: bool, // [3]
-    pub reserved: bool,    // [3] 1 bit
+    pub reserved: bool,  // [3] 1 bit
     pub authenticated_data: bool, // [3] 1 bit DNSSEC
     pub checking_disabled: bool, // [3] b bit DNSSEC
     pub response_code: u8, // 4bit response code
@@ -75,10 +75,12 @@ impl Header {
                 | ((self.recursion_desired as u8) << 0),
         );
 
-        header_data.push(((self.recursion_available as u8) << 7) |
-            ((self.authenticated_data as u8) << 5) |
-            ((self.checking_disabled as u8) << 4) |
-            (self.response_code & 0xF));
+        header_data.push(
+            ((self.recursion_available as u8) << 7)
+                | ((self.authenticated_data as u8) << 5)
+                | ((self.checking_disabled as u8) << 4)
+                | (self.response_code & 0xF),
+        );
 
         header_data.extend_from_slice(&(self.question_count.to_be_bytes()));
 
@@ -171,58 +173,68 @@ impl DNSPacket {
     ///- Reads labels until it hits a null terminator OR a pointer
     ///- If it hits a pointer, recursively calls itself at the pointer offset
     ///- Tracks visited offsets to prevent infinite loops
-    /// 
-    fn label_from_offset(data: &[u8], offset: usize, first_label: bool, result: &mut String) -> Result< usize, String> {
+    ///
+    fn label_from_offset(
+        data: &[u8],
+        offset: usize,
+        first_label: bool,
+        result: &mut String,
+    ) -> Result<usize, String> {
         if offset >= data.len() || data.len() == 0 {
             return Err(String::from("Not enough data to parse domainname"));
         }
-       
-       if data[offset] == 0 {
+
+        if data[offset] == 0 {
             // sequence of labels terminates with null byte
             return Ok(1);
-       }
+        }
         let first_two_bits = data[offset] & 0xC0;
         if first_two_bits == 0x40 || first_two_bits == 0x80 {
             return Err(String::from("Reserved label bit pattern (01 or 10)"));
         }
-        
+
         if data[offset] & 0xC0 == 0xC0 {
             // this is a compressed label
             if offset + 1 >= data.len() {
                 return Err(String::from("Incomplete compression pointer"));
             }
-            let domain_name_pointer = u16::from_be_bytes([data[offset],data[offset+1]]) & 0x3F_FF;
+            let domain_name_pointer =
+                u16::from_be_bytes([data[offset], data[offset + 1]]) & 0x3F_FF;
             if domain_name_pointer as usize >= data.len() {
                 return Err(String::from("Compressed pointer is too large"));
             }
-            //let domain_name_res = 
+            //let domain_name_res =
             tracing::info!("Reading compressed label at {} offset", domain_name_pointer);
             //if let Ok(bytes_read) =
-            match DNSPacket::label_from_offset(data, domain_name_pointer as usize, first_label, result) {
+            match DNSPacket::label_from_offset(
+                data,
+                domain_name_pointer as usize,
+                first_label,
+                result,
+            ) {
                 Ok(bytes_read) => return Ok(2),
                 Err(e) => return Err(e),
             };
         }
-        
+
         // this is not a compressed label
-        
+
         let mut data_idx = offset;
         let mut current_label = String::new();
-        
+
         let char_count = data[data_idx] as usize;
         // check if char count is more than we have data or if it exeeds the max allowed label length
         if (char_count + data_idx) >= data.len() || char_count > 63 {
             return Err(String::from("Not enough data"));
         }
-        
+
         data_idx += 1;
-        
-        
+
         if !first_label {
             current_label.push('.');
             result.push('.');
         }
-        
+
         // push character_count characters into the string buffer
         let start_idx = data_idx;
         while data_idx < data.len() && data_idx < (start_idx + char_count) {
@@ -230,14 +242,14 @@ impl DNSPacket {
             current_label.push(data[data_idx] as char); // for debugging
             data_idx += 1;
         }
-        
+
         // go to the next label
         tracing::info!("Parsed Current uncompressed label: {}", current_label);
-        
+
         //Err(String::from("fff"))
         let recursive_res = DNSPacket::label_from_offset(data, data_idx, false, result);
         match recursive_res {
-            Ok(rec_len) => Ok(rec_len+(data_idx-offset)), // recursivelly add the number of bytes read
+            Ok(rec_len) => Ok(rec_len + (data_idx - offset)), // recursivelly add the number of bytes read
             Err(e) => Err(e),
         }
     }
@@ -253,12 +265,12 @@ impl DNSPacket {
         let mut data_idx = offset;
 
         let mut domain_name = String::new();
-        
+
         // end of domain name is 0x00 byte
         if data[data_idx] == 0 {
-            return Ok((domain_name,0));
+            return Ok((domain_name, 0));
         }
-        
+
         let mut first_label = true;
         while data_idx < data.len() && data[data_idx] != 0 {
             // this data belongs to current question
@@ -307,9 +319,9 @@ impl DNSPacket {
         let truncation = ((data[2] & 0x02) >> 1) == 1;
         let recursion_desired = (data[2] & 0x01) == 1;
         let recursion_available = ((data[3] & 0x80) >> 7) == 1;
-        let reserved = ((data[3] & 0x40) >> 6)==1;
-        let authenticated_data = ((data[3] & 0x20) >> 5)==1;
-        let checking_disabled = ((data[3] & 0x10) >> 4)==1;
+        let reserved = ((data[3] & 0x40) >> 6) == 1;
+        let authenticated_data = ((data[3] & 0x20) >> 5) == 1;
+        let checking_disabled = ((data[3] & 0x10) >> 4) == 1;
         let response_code = data[3] & 0x0F;
         let question_count = u16::from_be_bytes([data[4], data[5]]);
         let answer_count = u16::from_be_bytes([data[6], data[7]]);
@@ -332,14 +344,15 @@ impl DNSPacket {
             if data_idx >= data.len() {
                 break;
             }
-            
+
             // recurively parse the domain name
             let mut domain_name = String::new();
-            let bytes_read = match DNSPacket::label_from_offset(data, data_idx, true, &mut domain_name) {
-                Ok(bytes_read) => bytes_read,
-                Err(e) => return Err(e),
-            };
-            
+            let bytes_read =
+                match DNSPacket::label_from_offset(data, data_idx, true, &mut domain_name) {
+                    Ok(bytes_read) => bytes_read,
+                    Err(e) => return Err(e),
+                };
+
             //let (domain_name, bytes_read) = match domain_name_res {
             //    Ok(res) => res,
             //    Err(e) => return Err(e),
@@ -347,11 +360,11 @@ impl DNSPacket {
             if bytes_read == 0 || bytes_read >= server_consts::BUF_SIZE {
                 return Err(String::from("error reading domain name"));
             }
-            
+
             data_idx += bytes_read;
-            
+
             tracing::info!("Read domain name: {}", domain_name);
-            
+
             // see if we can parse the record type and class number
             if data_idx + 4 > data.len() {
                 return Err(String::from("not enough data"));

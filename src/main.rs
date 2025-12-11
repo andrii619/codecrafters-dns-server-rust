@@ -1,7 +1,7 @@
 // #[allow(unused_imports)]
 use std::net::UdpSocket;
-use tracing::{info, debug, error};
-use tracing_subscriber::{FmtSubscriber};
+use tracing::{debug, error, info};
+use tracing_subscriber::FmtSubscriber;
 
 // declare a rust modul
 use codecrafters_dns_server::server_consts::{BUF_SIZE, SERVER_ADDR};
@@ -46,23 +46,35 @@ fn main() {
                             "Request packet parsed successfully"
                         );
                         packet
-                    },
+                    }
                     Err(e) => {
                         error!(error = %e, "Error parsing DNS packet");
                         continue;
                     }
                 };
 
+                let mut answers: Vec<Answer> = vec![];
                 if !request_packet.questions.is_empty() {
-                    let question = &request_packet.questions[0];
-                    info!(
-                        domain = %question.domain_name,
-                        type_code = question.record_type as u16,
-                        "DNS query for domain"
-                    );
+                    for question in &request_packet.questions {
+                        // let question = &request_packet.questions[0];
+                        info!(
+                            domain = %question.domain_name,
+                            type_code = question.record_type as u16,
+                            "DNS query for domain"
+                        );
+
+                        answers.push(Answer {
+                            domain_name: question.domain_name.clone(),
+                            record_type: question.record_type,
+                            class: question.class,
+                            time_to_live: 60,
+                            data_length: 4,
+                            data: vec![0x8, 0x8, 0x8, 0x8],
+                        });
+                    }
                 }
 
-                let tmp_name = request_packet.questions[0].domain_name.clone();
+                // let tmp_name = request_packet.questions[0].domain_name.clone();
 
                 // create a DNS packet for the response
                 let response_packet = parser::DNSPacket {
@@ -88,28 +100,23 @@ fn main() {
                         additional_count: 0,
                     },
                     questions: request_packet.questions,
-                    answers: vec![Answer {
-                        domain_name: tmp_name.clone(),
-                        record_type: parser::RecordType::A,
-                        class: parser::RecordClass::IN,
-                        time_to_live: 60,
-                        data_length: 4,
-                        data: vec![0x08, 0x08, 0x08, 0x08],
-                    }],
+                    answers,
                 };
 
-                debug!("Creating response with IP 8.8.8.8 for domain {}", tmp_name);
+                // debug!("Creating response with IP 8.8.8.8 for domain {}");
                 let response_data = response_packet.to_bytes();
 
                 debug!(
-                    first_bytes = format!("{:02X} {:02X} {:02X} {:02X}",
-                    response_data[0], response_data[1], response_data[2], response_data[3]),
+                    first_bytes = format!(
+                        "{:02X} {:02X} {:02X} {:02X}",
+                        response_data[0], response_data[1], response_data[2], response_data[3]
+                    ),
                     "Response header bytes"
                 );
 
                 match udp_socket.send_to(&response_data, source) {
                     Ok(sent) => info!(bytes = sent, "Response sent successfully"),
-                    Err(e) => error!(error = %e, "Failed to send DNS response")
+                    Err(e) => error!(error = %e, "Failed to send DNS response"),
                 };
             }
             Err(e) => {
