@@ -3,10 +3,25 @@ use std::net::UdpSocket;
 use tracing::{debug, error, info};
 use tracing_subscriber::FmtSubscriber;
 
+use clap::Parser;
+
 // declare a rust modul
 use codecrafters_dns_server::server_consts::{BUF_SIZE, SERVER_ADDR};
 
 use codecrafters_dns_server::protocol::parser::{self, Answer, DNSPacket, Header};
+
+// use std::net::Ipv4Addr;
+// use std::str::FromStr;
+
+use std::net::SocketAddr;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// IP of remote DNS server for forwarding requests in the form: ip:port
+    #[arg(short, long)]
+    resolver: String,
+}
 
 fn main() {
     // Initialize tracing subscriber
@@ -20,7 +35,36 @@ fn main() {
         return;
     }
 
+    // parse command line arguments
+    let args = Args::parse();
+    info!("resolver: {}", args.resolver);
+
+    // check ip address
+    let resolver_address = match args.resolver.parse::<SocketAddr>() {
+        Ok(address) => address,
+        Err(_) => {
+            info!(
+                "Was not able to parse resolver IP address {}",
+                args.resolver
+            );
+            return;
+        }
+    };
+
+    let conn_to_resolver = match UdpSocket::bind("0.0.0.0:0") {
+        Ok(sock) => sock,
+        Err(_) => {
+            info!("Not able to bind local socket");
+            return;
+        }
+    };
+
     info!("DNS server starting up...");
+    info!(
+        "Using {}:{} as the remote resolver",
+        resolver_address.ip(),
+        resolver_address.port()
+    );
 
     info!("Binding to {}", SERVER_ADDR);
     let udp_socket = UdpSocket::bind(SERVER_ADDR).expect("Failed to bind to address");
