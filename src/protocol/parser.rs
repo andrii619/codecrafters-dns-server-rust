@@ -281,7 +281,7 @@ impl DNSPacket {
         }
 
         let mut questions = Vec::<Question>::new();
-        let answers = Vec::<Answer>::new();
+        let mut answers = Vec::<Answer>::new();
 
         // parse questions
         let mut data_idx: usize = 12; // one past the header
@@ -337,6 +337,91 @@ impl DNSPacket {
 
         if questions_parsed != question_count {
             return Err(String::from("Not enough data to parse all questions"));
+        }
+
+        // parse answer section
+        let mut answers_parsed = 0;
+        for _ in 0..answer_count {
+            if data_idx >= data.len() {
+                break;
+            }
+
+            // recurively parse the domain name
+            let mut domain_name = String::new();
+            let bytes_read =
+                match DNSPacket::label_from_offset(data, data_idx, true, &mut domain_name) {
+                    Ok(bytes_read) => bytes_read,
+                    Err(e) => return Err(e),
+                };
+
+            if bytes_read == 0 || bytes_read >= server_consts::BUF_SIZE {
+                return Err(String::from("error reading domain name"));
+            }
+
+            data_idx += bytes_read;
+
+            tracing::info!("Read domain name: {}", domain_name);
+
+            // see if we can parse the record type and class number
+            if data_idx + 4 > data.len() {
+                return Err(String::from("not enough data"));
+            }
+
+            let record_type_num = u16::from_be_bytes([data[data_idx], data[data_idx + 1]]);
+            data_idx += 2;
+            let record_type = match record_type_num {
+                1 => RecordType::A,
+                _ => return Err(String::from("Record type error")),
+            };
+
+            let class_num = u16::from_be_bytes([data[data_idx], data[data_idx + 1]]);
+            data_idx += 2;
+
+            let class = match class_num {
+                1 => RecordClass::IN,
+                _ => return Err(String::from("bad record class")),
+            };
+
+            // parse TTL which is 4 bytes
+            if data_idx + 6 > data.len() {
+                // 4 for TTL + 2 for data_length
+                return Err(String::from("Not enough data for TTL and data length"));
+            }
+            let time_to_live = u32::from_be_bytes([
+                data[data_idx],
+                data[data_idx + 1],
+                data[data_idx + 2],
+                data[data_idx + 3],
+            ]);
+
+            data_idx += 4;
+
+            // parse RD length which is 2 bytes
+            let data_length = u16::from_be_bytes([data[data_idx], data[data_idx + 1]]);
+            data_idx += 2;
+
+            // parse the actual answer data
+            let rdata_length = data_length as usize;
+            if data_idx + rdata_length > data.len() {
+                return Err(String::from("Not enough data for answer RDATA"));
+            }
+            let answer_data = Vec::<u8>::from(&data[data_idx..data_idx + rdata_length]);
+
+            data_idx += rdata_length;
+
+            answers.push(Answer {
+                domain_name,
+                record_type,
+                class,
+                time_to_live,
+                data_length,
+                data: answer_data,
+            });
+            answers_parsed += 1;
+        }
+
+        if answers_parsed != answer_count {
+            return Err(String::from("Not enough data to parse all answers"));
         }
 
         Ok(DNSPacket {
