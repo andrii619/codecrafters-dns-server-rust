@@ -69,6 +69,7 @@ fn main() {
     info!("Binding to {}", SERVER_ADDR);
     let udp_socket = UdpSocket::bind(SERVER_ADDR).expect("Failed to bind to address");
     let mut buf = [0; BUF_SIZE];
+    let mut resolver_buf = [0; BUF_SIZE];
 
     info!("DNS server ready to receive requests");
 
@@ -107,14 +108,95 @@ fn main() {
                             "DNS query for domain"
                         );
 
-                        answers.push(Answer {
-                            domain_name: question.domain_name.clone(),
-                            record_type: question.record_type,
-                            class: question.class,
-                            time_to_live: 60,
-                            data_length: 4,
-                            data: vec![0x8, 0x8, 0x8, 0x8],
-                        });
+                        // query the question from remote DNS resolver
+                        let query_packet = DNSPacket {
+                            header: Header {
+                                identifier: request_packet.header.identifier,
+                                is_response: false,
+                                opcode: request_packet.header.opcode,
+                                authoritative: request_packet.header.authoritative,
+                                truncation: false,
+                                recursion_desired: false,
+                                recursion_available: false,
+                                reserved: false,
+                                authenticated_data: false,
+                                checking_disabled: false,
+                                response_code: request_packet.header.response_code,
+                                question_count: 1,
+                                answer_count: 0,
+                                authority_count: 0,
+                                additional_count: 0,
+                            },
+                            questions: vec![question.clone()],
+                            answers: vec![],
+                        };
+
+                        // send the query to remote resolver
+                        let query_data = query_packet.to_bytes();
+                        let bytes_sent =
+                            match conn_to_resolver.send_to(&query_data, resolver_address) {
+                                Ok(count) => count,
+                                Err(_) => {
+                                    info!(
+                                        "Error sending a query to remote resolver {} to ask for {}",
+                                        args.resolver, question.domain_name
+                                    );
+                                    continue;
+                                }
+                            };
+                        if bytes_sent != query_data.len() {
+                            info!(
+                                "was not able to send all data to remote resolver {} to ask for {}",
+                                args.resolver, question.domain_name
+                            );
+                            continue;
+                        }
+                        // try to get an answer from remote resolver
+                        match conn_to_resolver.recv_from(&mut resolver_buf) {
+                            Ok((recv_len, remote_addr)) => {
+                                info!(
+                                    "Received from remote resolver: {}, at {}",
+                                    recv_len,
+                                    remote_addr.to_string()
+                                );
+                                // try to parse response as a DNS packet and extract the answer data
+                                let query_response = match DNSPacket::from_bytes(&resolver_buf) {
+                                    Ok(packet) => packet,
+                                    Err(_) => {
+                                        info!("failed to parse DNS response from remote resolver");
+                                        continue;
+                                    }
+                                };
+                                if query_response.header.answer_count != 1
+                                    || query_response.answers.len() != 1
+                                {
+                                    info!("Error. Resolver response does not contain an answer");
+                                    continue;
+                                }
+
+                                answers.push(Answer {
+                                    domain_name: question.domain_name.clone(),
+                                    record_type: question.record_type,
+                                    class: question.class,
+                                    time_to_live: query_response.answers[0].time_to_live,
+                                    data_length: 4,
+                                    data: query_response.answers[0].data.clone(),
+                                });
+                            }
+                            Err(_) => {
+                                info!("was not able to receive response from remote resolver");
+                                continue;
+                            }
+                        }
+
+                        //answers.push(Answer {
+                        //    domain_name: question.domain_name.clone(),
+                        //    record_type: question.record_type,
+                        //    class: question.class,
+                        //    time_to_live: 60,
+                        //    data_length: 4,
+                        //    data: vec![0x8, 0x8, 0x8, 0x8],
+                        //});
                     }
                 }
 

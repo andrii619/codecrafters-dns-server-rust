@@ -40,6 +40,7 @@ pub enum RecordClass {
 }
 
 /// Header is always 12bytes inside a raw packet
+#[derive(Clone, Copy)]
 pub struct Header {
     pub identifier: u16, // [0:1] A random ID assigned to query packets. Response packets must reply with the same ID.
     pub is_response: bool, //[2] 1 for reply packet, 0 for a question packet
@@ -92,6 +93,7 @@ impl Header {
     }
 }
 
+#[derive(Clone)]
 pub struct Question {
     pub domain_name: String,
     pub record_type: RecordType, //2 bytes
@@ -115,6 +117,7 @@ impl Question {
     }
 }
 
+#[derive(Clone)]
 pub struct Answer {
     pub domain_name: String,
     pub record_type: RecordType, //2 bytes
