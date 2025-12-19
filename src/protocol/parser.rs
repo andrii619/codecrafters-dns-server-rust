@@ -85,6 +85,7 @@ pub enum Opcode {
     /// for DDNS to add, delete, or modify a record
     UPDATE,
     DSO,
+    NOTIMPLEMENTED,
 }
 
 pub trait DNSRecord {
@@ -358,7 +359,10 @@ impl DNSPacket {
             4 => Opcode::NOTIFY,
             5 => Opcode::UPDATE,
             6 => Opcode::DSO,
-            a => return Err(format!("Invalid opcode {}", a)),
+            a => {
+                tracing::info!("Invalid opcode {}", a);
+                Opcode::NOTIMPLEMENTED
+            }
         };
         let authoritative = ((data[2] & 0x04) >> 2) == 1;
         let truncation = ((data[2] & 0x02) >> 1) == 1;
