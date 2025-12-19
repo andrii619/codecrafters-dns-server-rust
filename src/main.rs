@@ -8,11 +8,15 @@ use clap::Parser;
 // declare a rust modul
 use codecrafters_dns_server::server_consts::{BUF_SIZE, SERVER_ADDR};
 
-use codecrafters_dns_server::protocol::parser::{self, Answer, DNSPacket, Header};
+use codecrafters_dns_server::protocol::parser::{
+    self, ARecord, Answer, CNameRecord, DNSPacket, DNSRecord, DNSRecordBase, Header, Opcode,
+    RecordType, ResponseCode,
+};
 
 // use std::net::Ipv4Addr;
 // use std::str::FromStr;
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 
 #[derive(Parser, Debug)]
@@ -73,6 +77,8 @@ fn main() {
 
     info!("DNS server ready to receive requests");
 
+    let mut record_cache = HashMap::<String, Vec<Box<dyn DNSRecord>>>::new();
+
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
@@ -85,7 +91,7 @@ fn main() {
                     Ok(packet) => {
                         debug!(
                             id = packet.header.identifier,
-                            opcode = packet.header.opcode,
+                            opcode = packet.header.opcode as u8,
                             recursion_desired = packet.header.recursion_desired,
                             question_count = packet.header.question_count,
                             "Request packet parsed successfully"
@@ -131,6 +137,8 @@ fn main() {
                             answers: vec![],
                         };
 
+                        // TODO: Check the cache fisrt to see if the record is already in it
+
                         // send the query to remote resolver
                         let query_data = query_packet.to_bytes();
                         let bytes_sent =
@@ -174,6 +182,36 @@ fn main() {
                                     continue;
                                 }
 
+                                let new_record = match question.record_type {
+                                    RecordType::A => Box::new(ARecord {
+                                        base: DNSRecordBase {
+                                            domain_name: question.domain_name.clone(),
+                                            expiration_time: chrono::Utc::now()
+                                                + chrono::TimeDelta::seconds(
+                                                    query_response.answers[0].time_to_live as i64,
+                                                ),
+                                        },
+                                        ip_v4: [
+                                            query_response.answers[0].data[0],
+                                            query_response.answers[0].data[1],
+                                            query_response.answers[0].data[2],
+                                            query_response.answers[0].data[3],
+                                        ],
+                                    }),
+                                    _ => {
+                                        continue;
+                                    }
+                                };
+
+                                // push new record to the cache
+                                if record_cache.contains_key(&question.domain_name) {
+                                    // add the record to the cache
+                                } else {
+                                    // create a new record
+                                    record_cache
+                                        .insert(question.domain_name.clone(), vec![new_record]);
+                                }
+
                                 answers.push(Answer {
                                     domain_name: question.domain_name.clone(),
                                     record_type: question.record_type,
@@ -215,10 +253,10 @@ fn main() {
                         reserved: false,
                         authenticated_data: false,
                         checking_disabled: false,
-                        response_code: if request_packet.header.opcode == 0 {
-                            0
+                        response_code: if request_packet.header.opcode == Opcode::QUERY {
+                            ResponseCode::NOERROR
                         } else {
-                            4
+                            ResponseCode::NOTIMP
                         },
                         question_count: request_packet.header.question_count,
                         answer_count: request_packet.header.question_count,

@@ -14,12 +14,17 @@
 use crate::server_consts;
 // use tracing::{debug, error, trace};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum RecordType {
+    /// Adress Record: domain name -> IPv4 address (ex example.com -> 192.0.2.1)
     A = 1,
+    /// domain name -> IPv6
+    AAAA,
+    /// Name Server Record: Lists authoritative name servers for a domain name (Ex example.com -> ns1.examplehostingprovider.com, ns2.examplehostingprovider.com)
     NS,
     MD,
     MF,
+    /// Canonical Name Record: alias for domain names. domain name -> domain name. (Ex: www.example.com -> example.com, ftp.example.com -> example.com). Used for running multiple subdomains for different purposes
     CNAME,
     SOA,
     MB,
@@ -27,10 +32,13 @@ pub enum RecordType {
     MR,
     NULL,
     WKS,
+    // Pointer Record. IP address -> domain name. Used in reverse DNS to map IP to a domain name
     PTR,
     HINFO,
     MINFO,
+    /// Mail Exchange Record: directs email for domain to the correct mail server
     MX,
+    /// Stores arbitrary text. Often used for email verification
     TXT,
 }
 
@@ -39,12 +47,92 @@ pub enum RecordClass {
     IN = 1,
 }
 
+/// DNS Response codes
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum ResponseCode {
+    NOERROR = 0,
+    FORMERR,
+    SERVFAIL,
+    NXDOMAIN,
+    NOTIMP,
+    REFUSED,
+    YXDOMAIN,
+    YXRRSET,
+    NXRSET,
+    NOTAUTH,
+    NOTZONE,
+    BADVERS = 16,
+    BADSIG,
+    BADKEY,
+    BADTIME,
+    BADMODE,
+    BADNAME,
+    BADALG,
+    // TIMEOUT,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, PartialEq)]
+/// 4 bit DNS Operation code
+pub enum Opcode {
+    QUERY = 0,
+    /// finding a name from IP
+    IQUERY,
+    /// request the server status information
+    STATUS,
+    NOTIFY = 4,
+    /// for DDNS to add, delete, or modify a record
+    UPDATE,
+    DSO,
+}
+
+pub trait DNSRecord {
+    // the timestamp of when this record is considered to be expired
+    //
+    fn get_domain_name(&self) -> &str;
+    /// Get the expiration time
+    fn get_expiration_time(&self) -> chrono::DateTime<chrono::Utc>;
+    // Check if the record is expired
+    fn is_expired(&self) -> bool {
+        self.get_expiration_time() < chrono::Utc::now()
+    }
+}
+
+pub struct DNSRecordBase {
+    pub domain_name: String,
+    // time_to_live: u32,
+    pub expiration_time: chrono::DateTime<chrono::Utc>,
+}
+
+pub struct ARecord {
+    pub base: DNSRecordBase,
+    // pub domain_name: String,
+    /// 4 tuple to represent IPv4 Address
+    pub ip_v4: [u8; 4],
+}
+
+impl DNSRecord for ARecord {
+    fn get_domain_name(&self) -> &str {
+        return &self.base.domain_name;
+    }
+    fn get_expiration_time(&self) -> chrono::DateTime<chrono::Utc> {
+        return self.base.expiration_time;
+    }
+}
+
+pub struct CNameRecord {
+    pub base: DNSRecordBase,
+    pub domain_name_alias: String,
+    // pub domain_name: String,
+}
+
 /// Header is always 12bytes inside a raw packet
 #[derive(Clone, Copy)]
 pub struct Header {
     pub identifier: u16, // [0:1] A random ID assigned to query packets. Response packets must reply with the same ID.
     pub is_response: bool, //[2] 1 for reply packet, 0 for a question packet
-    pub opcode: u8,      //[2] 4 bits
+    pub opcode: Opcode,  //[2] 4 bits
     pub authoritative: bool, // [2]
     pub truncation: bool, // [2]
     pub recursion_desired: bool, // [2]
@@ -52,7 +140,7 @@ pub struct Header {
     pub reserved: bool,  // [3] 1 bit
     pub authenticated_data: bool, // [3] 1 bit DNSSEC
     pub checking_disabled: bool, // [3] b bit DNSSEC
-    pub response_code: u8, // 4bit response code
+    pub response_code: ResponseCode, // 4bit response code
     pub question_count: u16, // [4:5]
     pub answer_count: u16, // [6:7]
     pub authority_count: u16, // [8:9]
@@ -70,7 +158,7 @@ impl Header {
 
         header_data.push(
             ((self.is_response as u8) << 7)
-                | ((self.opcode & 0xF) << 3)
+                | ((self.opcode as u8 & 0xF) << 3)
                 | ((self.authoritative as u8) << 2)
                 | ((self.truncation as u8) << 1)
                 | ((self.recursion_desired as u8) << 0),
@@ -80,7 +168,7 @@ impl Header {
             ((self.recursion_available as u8) << 7)
                 | ((self.authenticated_data as u8) << 5)
                 | ((self.checking_disabled as u8) << 4)
-                | (self.response_code & 0xF),
+                | (self.response_code as u8 & 0xF),
         );
 
         header_data.extend_from_slice(&(self.question_count.to_be_bytes()));
@@ -263,7 +351,10 @@ impl DNSPacket {
 
         let identifier = u16::from_be_bytes([data[0], data[1]]);
         let is_response = ((data[2] & 0x80) >> 7) == 1;
-        let opcode: u8 = (data[2] & 0x78) >> 3;
+        let opcode: Opcode = match (data[2] & 0x78) >> 3 {
+            0 => Opcode::QUERY,
+            _ => return Err(String::from("Invalid opcode")),
+        };
         let authoritative = ((data[2] & 0x04) >> 2) == 1;
         let truncation = ((data[2] & 0x02) >> 1) == 1;
         let recursion_desired = (data[2] & 0x01) == 1;
@@ -271,7 +362,10 @@ impl DNSPacket {
         let reserved = ((data[3] & 0x40) >> 6) == 1;
         let authenticated_data = ((data[3] & 0x20) >> 5) == 1;
         let checking_disabled = ((data[3] & 0x10) >> 4) == 1;
-        let response_code = data[3] & 0x0F;
+        let response_code: ResponseCode = match data[3] & 0x0F {
+            0 => ResponseCode::NOERROR,
+            _ => return Err(String::from("Invalid response code")),
+        };
         let question_count = u16::from_be_bytes([data[4], data[5]]);
         let answer_count = u16::from_be_bytes([data[6], data[7]]);
         let authority_count = u16::from_be_bytes([data[8], data[9]]);
