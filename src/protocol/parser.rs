@@ -81,11 +81,12 @@ pub enum Opcode {
     IQUERY,
     /// request the server status information
     STATUS,
-    NOTIFY = 4,
+    NOTIMPLEMENTED1,
+    NOTIFY,
     /// for DDNS to add, delete, or modify a record
     UPDATE,
     DSO,
-    NOTIMPLEMENTED,
+    NOTIMPLEMENTED2,
 }
 
 pub trait DNSRecord {
@@ -356,12 +357,13 @@ impl DNSPacket {
             0 => Opcode::QUERY,
             1 => Opcode::IQUERY,
             2 => Opcode::STATUS,
+            3 => Opcode::NOTIMPLEMENTED1,
             4 => Opcode::NOTIFY,
             5 => Opcode::UPDATE,
             6 => Opcode::DSO,
             a => {
                 tracing::info!("Invalid opcode {}", a);
-                Opcode::NOTIMPLEMENTED
+                Opcode::NOTIMPLEMENTED2
             }
         };
         let authoritative = ((data[2] & 0x04) >> 2) == 1;
