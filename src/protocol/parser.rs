@@ -353,7 +353,7 @@ impl DNSPacket {
         let is_response = ((data[2] & 0x80) >> 7) == 1;
         let opcode: Opcode = match (data[2] & 0x78) >> 3 {
             0 => Opcode::QUERY,
-            _ => return Err(String::from("Invalid opcode")),
+            a => return Err(format!("Invalid opcode {}",a)),
         };
         let authoritative = ((data[2] & 0x04) >> 2) == 1;
         let truncation = ((data[2] & 0x02) >> 1) == 1;
